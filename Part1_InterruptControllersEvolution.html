@@ -34,7 +34,7 @@
 
 	<p>This article is about hardware/external interrupts IRQ.<p/>
 
-	<p>What is the purpose of interrupts? For example, we want to perform an action with an incoming packet from the network card as soon as the packet arrives. If you don't want to continuously ask the network card "Has my packet arrived?" and waste your processor time, you can use external hardware interrupt IRQ. The interrupt line from a device should be connected to the INTR line of the CPU, and after each packet is received, the network card will make a signal over this line. The CPU will sense this signal and know that the network card has information for it. Only after that will the CPU read the incoming packet.<p/>
+	<p>What is the purpose of interrupts? For example, we want to perform an action with an incoming packet from the network card as soon as the packet arrives. If you don't want to continuously ask the network card "Has my packet arrived?" and waste your processor time, you can use external hardware interrupt IRQ. The interrupt line from a device should be connected to the INTR line of the CPU, and after each packet is received, the network card will make a signal over this line. The CPU will sense this signal and know that the network card has information for it. Only after that the CPU will read the incoming packet.<p/>
 
 	<p>But what should we do if there are more external devices than pins on the CPU? There won't be enough room for all of them.<p/>
 
