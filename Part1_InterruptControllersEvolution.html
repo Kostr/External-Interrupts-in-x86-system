@@ -134,7 +134,7 @@
 
 	<p>The first APIC chip was the <a href="https://4donline.ihs.com/images/VipMasterIC/IC/INTL/INTLD047/INTLD047-2-1259.pdf?hkey=EF798316E3902B6ED9A73243A3159BB0">82489DX</a>, which was a separate chip that had a connected LAPIC and I/O APIC within itself. For a dual processor system three such chips were needed: two for LAPIC and one for I/O APIC. Later LAPIC functionality was directly included in processors, and the I/O APIC part was separated to the 82093AA chip.<p/>
 
-	<p>The I/O APIC <a href="https://pdos.csail.mit.edu/6.828/2016/readings/ia32/ioapic.pdf">82093AA</a> had 24 inputs, and the APIC architecture could support up to 16 CPUs. For compatibility with older systems interrupts 0-15 were left for old ISA interrupts, and interrupts from PCI devices were routed on IRQ lines 16-23. This avoided all conflicts between ISA and PCI interrupts. With the increased number of free interrupt lines it also became possible to increase the number of PIRQx lines.<p/>
+	<p>The I/O APIC <a href="https://pdos.csail.mit.edu/6.828/2016/readings/ia32/ioapic.pdf">82093AA</a> had 24 inputs, and the APIC architecture could support up to 16 CPUs. Interrupts 0-15 were left for old ISA interrupts for compatibility with older systems, and interrupts 16-23 were meant for all the PCI devices. With this delimitation all conflicts between ISA and PCI interrupts could be easily avoided. With the increased number of free interrupt lines it also became possible to increase the number of PIRQx lines.<p/>
 
 	<img src="https://habrastorage.org/webt/mc/ra/hj/mcrahjn-owk9qrcmyiixcmhomcq.png" />
 
