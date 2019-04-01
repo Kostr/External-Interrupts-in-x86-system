@@ -3,25 +3,25 @@
 <html lang="en">
 <head>
 	<meta charset="utf-8">
-	<title>External Interrupts in x86 system. Part 1. Interrupt controllers evolution</title>
+	<title>External Interrupts in the x86 system. Part 1. Interrupt controller evolution</title>
 </head>
 
 <body>
-	<h1>External Interrupts in x86 system. Part 1. Interrupt controller evolution</h1>
+	<h1>External Interrupts in the x86 system. Part 1. Interrupt controller evolution</h1>
 
-	<p>This article is about an interrupt delivery process from external devices in x86 system and tries to answer questions such as:<p/>
+	<p>This article is about the interrupt delivery process from external devices in the x86 system. It tries to answer questions such as:<p/>
 
 	<ul>
-		<li>what is PIC and what is it for?</li>
-		<li>what is APIC and what is it for? What is a purpose of LAPIC and I/O APIC?</li>
-		<li>what are the differences between APIC, xAPIC and x2APIC?</li>
-		<li>what is MSI? What are the differences between MSI and MSI-X?</li>
-		<li>what is a role of tables $PIR, MPtable, ACPI?</li>
+		<li>What is PIC and what is it for?</li>
+		<li>What is APIC and what is it for? What is the purpose of LAPIC and I/O APIC?</li>
+		<li>What are the differences between APIC, xAPIC, and x2APIC?</li>
+		<li>What is MSI? What are the differences between MSI and MSI-X?</li>
+		<li>What is the role of the $PIR, MPtable, and ACPI tables?</li>
 	</ul>
-	<p>If you want to know the answer for one of these questions, or if you simply want to know about  interrupt controllers evolution, please, welcome.<p/>
+	<p>If you want to know the answer for one of these questions, or if you simply want to know about interrupt controller evolution, please, welcome.<p/>
 	<cut />
 	<h3>Introduction</h3>
-	<p>We all know what interrupt is. For those who don't, here is a quote from Wikipedia:<p/>
+	<p>For those who don't know what an interrupt is, here is a quote from Wikipedia:<p/>
 
 	<blockquote>In system programming, an interrupt is a signal to the processor emitted by hardware or software indicating an event that needs immediate attention. An interrupt alerts the processor to a high-priority condition requiring the interruption of the current code the processor is executing. The processor responds by suspending its current activities, saving its state, and executing a function called an interrupt handler (or an interrupt service routine, ISR) to deal with the event. This interruption is temporary, and, after the interrupt handler finishes, the processor resumes normal activities.
 
@@ -34,30 +34,30 @@
 
 	<p>This article is about hardware/external interrupts IRQ.<p/>
 
-	<p>What is the purpose of interrupts? For example, we want to make some action with an incoming packet from the network card, as soon as the packet arrives. If you don't want to continuously ask the network card "Have my packet arrived?" and waste your processor time, you can make use of external hardware interrupt IRQ. Interrupt line from a device should be connected to INTR line of CPU, and after each packet receive, the network card will make a signal over this line. CPU will sense this signal, and know that network card has information for it. Only after that CPU will read the incoming packet.<p/>
+	<p>What is the purpose of interrupts? For example, we want to perform an action with an incoming packet from the network card as soon as the packet arrives. If you don't want to continuously ask the network card "Has my packet arrived?" and waste your processor time, you can use external hardware interrupt IRQ. The interrupt line from a device should be connected to the INTR line of the CPU, and after each packet is received, the network card will make a signal over this line. The CPU will sense this signal and know that the network card has information for it. Only after that the CPU will read the incoming packet.<p/>
 
-	<p>But what should we do if there are a lot of external devices? Cause there are can't be enough pins on CPU for all of them.<p/>
+	<p>But what should we do if there are a lot of external devices? It would be very unproductive to make a ton of INTR pins on the CPU for all of them.<p/>
 
 	<img src="https://habrastorage.org/webt/vg/3q/3v/vg3q3v7kx8vjttp43xo99o8pccs.png" />
 
-	<p>To solve this problem special chip was invented - an interrupt controller.<p/>
+	<p>To solve this problem a special chip was invented - an interrupt controller.<p/>
 
 	<h3>PIC</h3>
 	(<a href="https://en.wikipedia.org/wiki/Programmable_interrupt_controller">wiki</a>/<a href="https://wiki.osdev.org/8259_PIC">osdev</a>) 
 
-	<p>The first interrupt controller chip was <a href="https://en.wikipedia.org/wiki/Intel_8259">Intel 8259 PIC</a>. 8 input lines (IRQ0-7) and 1 output line which connects interrupt controller with INTR line of CPU. When there is an interrupt from one of the devices on its input lines, 8259 will make a signal over INTR line. After that CPU will know that some device require its immediate attention, and processor will ask PIC which of 8 input lines (IRQx) was a source of this interrupt. There is some overhead for this polling, but now we have 8 interrupt lines instead of 1.<p/>
+	<p>The first interrupt controller chip was the <a href="https://en.wikipedia.org/wiki/Intel_8259">Intel 8259 PIC</a>. It had 8 input lines (IRQ0-7) and 1 output line (which connects the interrupt controller with the INTR line of the CPU). When there is an interrupt from one of the devices on its input lines, the 8259 will make a signal over the INTR line. After that the CPU will know that some device requires its immediate attention, and the processor will ask the PIC which of the 8 input lines (IRQx) was the source of this interrupt. There is some overhead to this polling, but now we have 8 interrupt lines instead of 1.<p/>
 
 	<img src="https://habrastorage.org/webt/le/yf/6e/leyf6enogyzp6flpijo2d0x1w9g.png" />
 
-	<p>Soon 8 lines weren't enough. To increase total interrupt line number two controllers 8259 (master and slave) were connected in a cascade (Dual PIC).<p/>
+	<p>Soon 8 lines weren't enough. To increase the total number of interrupt lines two 8259 controllers (master and slave) were connected in a cascade (Dual PIC).<p/>
 
-	<p>IRQs from 0 to 7 are processed with the first Intel 8259 PIC (master), and IRQs from 8 to 15 are processed with the second Intel 8259 PIC (slave). Only master is connected to CPU and can signal about the incoming interrupt. If there is an interrupt on lines 8-15, the second PIC (slave) will signal about it to master on the line IRQ2, and after that master will make a signal to CPU. This cascaded interrupt takes 1 from 16 lines, but makes total of 15 interrupts for all external devices.<p/>
+	<p>IRQs from 0 to 7 are processed with the first Intel 8259 PIC (master), and IRQs from 8 to 15 are processed with the second Intel 8259 PIC (slave). Only the master is connected to the CPU and can signal about the incoming interrupts. If there is an interrupt on lines 8-15, the second PIC (slave) will signal about it to the master on the line IRQ2, and after that the master will signal the CPU. This cascaded interrupt takes away 1 of the 16 lines, but makes a total of 15 interrupts for all external devices.<p/>
 
 	<img src="https://habrastorage.org/webt/xj/yn/dh/xjyndhabujjwz0alrbx831zfzt8.png" />
 
-	<p>This scheme was approved by a community and when now someone talks about PIC (Programm Interrupt Controller) they mean this Dual PIC system. After some time controllers 8259 have gotten some improvements and got a new name 8259A. And this scheme was included in chipset. At a time when the main bus for external devices connection was ISA bus, this system was enough. It was only necessary to that differenet devices did not connect to the same IRQ line, as this produces conflicts cause ISA interrupts aren't shareable.<p/>
+	<p>This scheme was adopted by the community, and now when someone talks about PIC (Programm Interrupt Controller) they mean this Dual PIC system. After some time the 8259 controllers were improved and got a new name: 8259A. With these controllers the DUAL PIC system was included in the chipset. At a time when the main bus for external device connection was the ISA, this system was sufficient. It was only necessary that different devices did not connect to the same IRQ line, since ISA interrupts aren't shareable.<p/>
 
-	<p>Usually a device interrupt mapping was pretty much standard:<p/>
+	<p>The device interrupt mapping was pretty much standard:<p/>
 
 	<p>Example (from <a href="https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)">here</a>):<p/>
 	IRQ 0 — system timer<br/>
@@ -104,79 +104,78 @@
 		<td class="tg-0lax">Data</td>
 		<td class="tg-0lax">0x00A1</td>
 	  </tr></table>
-	<p>Full documentation of the 8259A can be found <a href="https://pdos.csail.mit.edu/6.828/2005/readings/hardware/8259A.pdf">here</a><p/>
+	<p>Full documentation of the 8259A can be found <a href="https://pdos.csail.mit.edu/6.828/2005/readings/hardware/8259A.pdf">here</a><p/>.
 
-	<p>The PCI bus has replaced the ISA bus. And the number of devices amount clearly began to 
-	exceed the number 15. Plus instead of the static ISA bus in the PCI bus devices can be added to system dynamically. But luckily, in the PCI bus interrupts can be shared (it means that it is possible to connect many devices to one interrupt line IRQ). In the end, to solve the problem of lack of interrupt lines, it was decided to group interrupts from all of PCI devices to PIRQ lines (Programmable Interrupt Request).<p/>
+	<p>The PCI bus later replaced the ISA bus. Unfortunately, the number of devices began to exceed the number 15. Also instead of the static ISA bus, devices in the PCI bus can be added to the system dynamically which could potentially lead to even more problems. But luckily, interrupts in the PCI bus can be shared, so it is possible to connect many devices to one interrupt line IRQ. In the end, to solve the problem of lack of interrupt lines, it was decided to group interrupts from all of the PCI devices to PIRQ lines (Programmable Interrupt Request).<p/>
 
-	<p>For example we have 4 free interrupt lines on the PIC controller and 20 PCI devices. We can combine interrupts by 5 devices at one PIRQx line, and connect these PIRQx lines to the PIC controller. In this case if there is an interrupt on one of PIRQx lines, processor will have to ask all devices connected to this line about the interrupt, to know who is responsible for it, but in the end it solves the problem. The device that connects PCI interrupt lines to PIRQ lines is often called a PIR router.<p/>
+	<p>For example, suppose we have 4 free interrupt lines on the PIC controller and 20 PCI devices. We can combine interrupts from 5 devices into one PIRQx line, and connect these PIRQx lines to the PIC controller. In this case if there is an interrupt on one of PIRQx lines, the processor will have to ask all the devices connected to this line about the interrupt to know who is responsible for it, but in the end it solves the problem. The device that connects PCI interrupt lines to PIRQ lines is often called a PIR router.<p/>
 
-	<p>In this method it is necessary to watch out that PIRQx lines don't connect to lines with ISA interrupts (cause this will produce conflicts) and PIRQx lines are balanced (the more devices we connect to one line, the more devices CPU will need to poll, when it will need to understand which device is responsible for the interrupt).<p/>
+	<p>With this method it is necessary to ensure that PIRQx lines don't connect to lines with ISA interrupts (since this will produce conflicts) and that PIRQx lines are balanced (the more devices we connect to one line, the more devices the CPU will need to poll when it needs to check which device is responsible for the interrupt).<p/>
 
 	<img src="https://habrastorage.org/webt/u_/jr/u9/u_jru9pemdeda2xvvbqihvgtp3y.png" />
 
-	<p><b>Note</b>: on the image mapping PCI device -> PIR is pictured abstractedly, cause in the real case it is a little bit more complicated. In real life each PCI device have 4 interrupt lines (INTA, INTB, INTC, INTD). Also each PCI device can have up to 8 functions. And each function can have only one of these INTx interrupts. Which INTx line will be used by each function is determined by a chipset configuration.<p/>
+	<p><b>Note</b>: on the image the mapping of PCI device -> PIR is pictured abstractedly, since in the real case it is a little bit more complicated. In the real world each PCI device has 4 interrupt lines (INTA, INTB, INTC, INTD) and up to 8 functions, where each function can have only one of these INTx interrupts. Which INTx line will be used by each function is determined by the chipset configuration.<p/>
 
-	<p>By its nature functions are separate logical blocks. For example one PCI device can have an Smbus controller function, a SATA controller function, a LPC bridge function. From the point of an operating system (OS) each function is like a separate device with its own configuration space (PCI config).<p/>
+	<p>By their nature functions are separate logical blocks. For example, one PCI device can have an Smbus controller function, a SATA controller function, and an LPC bridge function. From the point of view of an operating system (OS), each function is like a separate device with its own configuration space (PCI config).<p/>
 
 
-	<p>Information about a PIC controller interrupt routing is sent to OS by BIOS with a help of the table $PIR and through registers 3Ch (INT_LN Interrupt Line (R/W)) and 3Dh (INT_PN Interrupt Pin (RO)) of the PCI configuration space for each function.<p/>
+	<p>Information about a PIC controller interrupt routing is sent to the OS by the BIOS, with the help of the table $PIR and through the registers 3Ch (INT_LN Interrupt Line (R/W)) and 3Dh (INT_PN Interrupt Pin (RO)) of the PCI configuration space for each function.<p/>
 
-	<p>A specification for $PIR table recently was <a href="http://www.microsoft.com/whdc/archive/pciirq.mspx">on the Intel website</a>, but currently it is unavailable. Is is possible to understand the table's content from <a href="http://www.o3one.org/hwdocs/bios_doc/pci_bios_21.pdf">PCI BIOS Specification</a> [4.2.2. Get PCI Interrupt Routing Options] or read it <a href="http://ru.osdev.wikia.com/wiki/PCI_IRQ_Routing_Table_Specification">here</a> (last link is in Russian, but you can try to google for "PCI IRQ Routing Table Specification")<p/>
+	<p>A specification for the $PIR table was recently <a href="http://www.microsoft.com/whdc/archive/pciirq.mspx">on the Intel website</a>, but currently is unavailable. It is possible to understand the table's content from <a href="http://www.o3one.org/hwdocs/bios_doc/pci_bios_21.pdf">PCI BIOS Specification</a> [4.2.2. Get PCI Interrupt Routing Options] or from <a href="http://ru.osdev.wikia.com/wiki/PCI_IRQ_Routing_Table_Specification">here</a> (the last link is in Russian, but you can try to google "PCI IRQ Routing Table Specification")<p/>
 
 	<h3>APIC </h3>
 	(<a href="https://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_Controller">wiki</a>, <a href="https://wiki.osdev.org/APIC">osdev</a>)
 
-	<p>The last method was working until a multiprocessor system has arrived. It is because by its nature PIC can send interrupts only to the one CPU. And of course it is desired to load CPUs in the multiprocessor system in a balanced way. The solution to this problem was the new APIC interface (Advanced PIC).<p/>
+	<p>The last method worked until multiprocessor systems arrived. By nature, the PIC can only send interrupts to one CPU, and in a multiprocessor system it is desired to load CPUs in a balanced way. The solution to this problem was the new APIC interface (Advanced PIC).<p/>
 
-	<p>For each processor, a special controller called LAPIC (Local APIC) is added. Also for routing interrupts from external devices controller <a href="https://wiki.osdev.org/IOAPIC">I/O APIC</a> is added. All these controllers are combined in a common bus with a name APIC (modern systems instead of this separate APIC bus make use of a standard system bus for this task).<p/>
+	<p>A special controller called LAPIC (Local APIC) was added for each processor, as well as the <a href="https://wiki.osdev.org/IOAPIC">I/O APIC</a> controller for routing interrupts from external devices. All of these controllers are combined in a common bus with the name APIC (note that modern systems use a standard system bus instead of a separate APIC bus for this task).<p/>
 
-	<p>When external interrupt arrives on the I/O APIC input, controller will send an interrupt message to LAPIC of one of the system CPUs. This way the I/O APIC controller help to ballance interrupt load between processors.<p/>
+	<p>When an external interrupt arrives on the I/O APIC input, the controller will send an interrupt message to the LAPIC of one of the system CPUs. In this way the I/O APIC controller helps balance interrupt load between processors.<p/>
 
-	<p>The first APIC chip was <a href="https://4donline.ihs.com/images/VipMasterIC/IC/INTL/INTLD047/INTLD047-2-1259.pdf?hkey=EF798316E3902B6ED9A73243A3159BB0">82489DX</a>, this was a separate chip with connected LAPIC and I/O APIC in itself. To make system with 2 processors it was needed 3 such chips (2 for LAPIC and 1 for I/O APIC). Later LAPIC functionality was directly included in processors, and an I/O APIC part was made to a separate 82093AA chip.<p/>
+	<p>The first APIC chip was the <a href="https://4donline.ihs.com/images/VipMasterIC/IC/INTL/INTLD047/INTLD047-2-1259.pdf?hkey=EF798316E3902B6ED9A73243A3159BB0">82489DX</a>, which was a separate chip that had a connected LAPIC and I/O APIC within itself. For a dual processor system three such chips were needed: two for LAPIC and one for I/O APIC. Later LAPIC functionality was directly included in processors, and the I/O APIC part was separated to the 82093AA chip.<p/>
 
-	<p>The I/O APIC <a href="https://pdos.csail.mit.edu/6.828/2016/readings/ia32/ioapic.pdf">82093AA</a> had 24 inputs, and APIC architecture could support up to 16 CPUs. For compatibility with older systems interrupts 0~15 were left for old ISA interrupts. And interrupts from PCI devices start to route on IRQ lines 16-23. With this you can forget about conflicts between ISA and PCI interrupts. Also cause of increased number of free interrupt lines it is became possible to increase number of PIRQx lines.<p/>
+	<p>The I/O APIC <a href="https://pdos.csail.mit.edu/6.828/2016/readings/ia32/ioapic.pdf">82093AA</a> had 24 inputs, and the APIC architecture could support up to 16 CPUs. Interrupts 0-15 were left for old ISA interrupts for compatibility with older systems, and interrupts 16-23 were meant for all the PCI devices. With this delimitation all conflicts between ISA and PCI interrupts could be easily avoided. With the increased number of free interrupt lines it also became possible to increase the number of PIRQx lines.<p/>
 
 	<img src="https://habrastorage.org/webt/mc/ra/hj/mcrahjn-owk9qrcmyiixcmhomcq.png" />
 
-	<p>I/O APIC and LAPIC programming is made with a help of MMIO. LAPIC registers usually are placed on address 0xFEE00000, and I/O APIC registers on address 0xFEС00000. But it is possible to reconfigure all these addresses.<p/>
+	<p>I/O APIC and LAPIC programming is done with the help of MMIO. LAPIC registers are usually placed on address 0xFEE00000, and I/O APIC registers on address 0xFEС00000, though it is possible to reconfigure them.<p/>
 
-	<p>As in a PIC case, separate chips at first became a part of a chipset later. <p/>
+	<p>As in the PIC case, separate chips in the beginning became part of the chipset later.<p/>
 
-	<p>Later APIC architecture get a modernization and its new variant get a name xAPIC (x - extended). With a full backward compatibility, the total number of possible CPUs in system was increased to 256.<p/>
+	<p>APIC architecture was later modernized, and its new variant was named xAPIC (x - extended). With full backwards compatibility, the total number of possible CPUs in system was increased to 256.<p/>
 
-	<p>The next step in architecture development has got a name <a href="https://www.intel.com/content/dam/doc/specification-update/64-architecture-x2apic-specification.pdf">x2APIC</a>. The number of possible CPUs in the system was increased to 2^32. Controllers can work in a backward compatibility mode to xAPIC, or they can work in a new x2APIC mode. In this new mode controller programming is made not through MMIO but through MSR registers (which is much faster). According to <a href="https://blahg.josefsipek.net/?tag=xAPIC">this link</a> for this mode IOMMU support is necessary.<p/>
+	<p>The next step in architecture development was named <a href="https://www.intel.com/content/dam/doc/specification-update/64-architecture-x2apic-specification.pdf">x2APIC</a>. The number of possible CPUs in the system was increased to 2^32. These controllers can work in a backwards compatibility mode with xAPIC, or they can work in the new x2APIC mode. In this new mode controller programming is not done through MMIO, but through MSR registers (which are much faster). According to <a href="https://blahg.josefsipek.net/?tag=xAPIC">this link</a>, IOMMU support is necessary for this mode.<p/>
 
-	<p>It is worth to notice that it is possible to have many I/O APIC controllers in the system. For example, one for 24 interrupts in a southbridge and the other one for 32 interrupts in a northbridge. In the context of I/O APIC, interrupts usually titled as GSI (Global System Interrupt). So, the forementioned system has GSIs 0-55.<p/>
+	<p>It is worthwhile to note that it is possible to have several I/O APIC controllers in the system. For example, one for 24 interrupts in a southbridge and the other one for 32 interrupts in a northbridge. In the context of I/O APIC, interrupts are usually called GSI (Global System Interrupt). So, the forementioned system has GSIs 0-55.<p/>
 
-	<p>Does the CPU have an internal LAPIC and which APIC architecture exactly? It is possible to get answers to these questions by inspecting bit-flags from CPUID.
-	To help OS to discover LAPIC and I/O APIC, BIOS should present information about them either through a MPtable (old method) or through an ACPI table (a MADT table in this case). Besides common information, both the MPtable and the ACPI (in this case a DSDT table) should contain info about the interrupt routing. This means information about which device uses which interrupt line (a $PIR table analogy).<p/>
+	<p>How can we determine if a CPU has an internal LAPIC and which APIC architecture it supports? It is possible to answer these questions by inspecting bit-flags from CPUID.
+	To help the OS discover LAPIC and I/O APIC, the BIOS should present information about them either through an MPtable (old method) or through an ACPI table (a MADT table in this case). Besides common information, both the MPtable and the ACPI (in this case a DSDT table) should contain information about the interrupt routing. This means information about which device uses which interrupt line (similar to the $PIR table).<p/>
 
-	<p>You can read about the MPtable in the official <a href="https://web.archive.org/web/20121002210153/http://download.intel.com/design/archives/processors/pro/docs/24201606.pdf">specification</a>. Earlier the specification was on the Intel website, but currently it is only possible to find it in an archive version. The ACPI specification can be found on the UEFI website (current version is <a href="https://www.uefi.org/sites/default/files/resources/ACPI_6_2.pdf">6.2</a>). It is worth to notice that with ACPI it is possible to declare the interrupt routing for systems without APIC (instead of providing a separate $PIR table).<p/>
+	<p>You can read about the MPtable in the official <a href="https://web.archive.org/web/20121002210153/http://download.intel.com/design/archives/processors/pro/docs/24201606.pdf">specification</a>. Earlier the specification was on the Intel website, but currently it is only possible to find it in an archive version. The ACPI specification can be found on the UEFI website (current version is <a href="https://www.uefi.org/sites/default/files/resources/ACPI_6_2.pdf">6.2</a>). It is worthwhile to notice that with ACPI it is possible to declare interrupt routing for systems without APIC (instead of providing a separate $PIR table).<p/>
 
 	 <h3>MSI </h3>
 	(<a href="https://en.wikipedia.org/wiki/Message_Signaled_Interrupts">wiki</a>)
 
-	<p>The last variant with APIC was good, but not without downsides. All these interrupt lines from devices make the system very complicated and thus increase error probability. The PCI express bus came to replace the PCI bus, and PCI express simplifies all interrupt system completely. It doesn't have interrupt lines at all. For backward compatibility interrupt signals (INTx#) are emulated with a separate kind of messages. With PCI interrupt lines their a connection was made with physical wires connection. With PCI express interrupt lines a connection is logical and is made by PCI express bridges. But this support of legacy INTx interrupts only exist for a backward compatibility with the PCI bus. The PCI express introduces completely new method of interrupt delivery - MSI (Message Signaled Interrupts). In this method device signals about the interrupt simply by writing in a special place in MMIO region of CPUs LAPIC.<p/>
+	<p>The last variant of APIC was good, but not without downsides. All of the interrupt lines from devices made the system very complicated and thus increased error probability. The PCI express bus came to replace the PCI bus, which simplified all interrupt systems completely. It doesn't have interrupt lines at all. For backwards compatibility interrupt signals (INTx#) are emulated with a separate kind of messages. With PCI interrupt lines their connection was made with physical wires. With PCI express interrupt lines a connection is logical and is made by PCI express bridges. But this support of legacy INTx interrupts only exists for backwards compatibility with the PCI bus. PCI express introduces a completely new method of interrupt delivery - MSI (Message Signaled Interrupts). In this method a device signals about the interrupt simply by writing to a special place in the MMIO region of the CPUs LAPIC.<p/>
 
-	<p>Earlier one PCI device (this means all its functions) could have only 4 interrupts, but now it is became possible to address up to 32 interrupts.<p/>
+	<p>Earlier a single PCI device (this means all its functions) could have only 4 interrupts, but now it became possible to address up to 32 interrupts.<p/>
 
-	<p>In a case of MSI there is no sharing for interrupt lines, every interrupt naturally corresponds to its device.<p/>
+	<p>In the case of MSI there is no sharing of interrupt lines: every interrupt naturally corresponds to its device.<p/>
 
-	<p>MSI interrupts also solve one more problem. For example let's imagine a situation where a device makes a memory-write transaction, and wants to signal about its completion through the interrupt. But a write transaction can be delayed on the bus in a process of its transmission (and the device couldn't know about it). In this case a signal about the interrupt will come to CPU first, so a processor will read yet not valid data. If MSI is used, information about MSI is transmitted in the same way as data messages, and it can't came earlier.<p/>
+	<p>MSI interrupts also solve one more problem. For example, let's imagine a situation where a device makes a memory-write transaction, and wants to signal about its completion through the interrupt. But a write transaction can be delayed on the bus in the process of its transmission (and the device couldn't know about it). In this case the signal about the interrupt will come to the CPU first, so the processor will read not yet valid data. If MSI is used, information about the MSI is transmitted in the same way as data messages, and so it can't come earlier.<p/>
 
-	<p>It is worth to notice that MSI interrupts can't work without LAPIC, but MSI's can replace I/O APIC (one more design simplicity).<p/>
+	<p>It is worthwhile to notice that MSI interrupts can't work without LAPIC, but MSI's can replace I/O APIC (one more design simplification).<p/>
 
-	<p>After some time the MSI method was extended to MSI-X. Now every device can have up to 2048 interrupts. Also now it's possible to specify which CPU should process which interrupt. It can be very useful for highload devices like network cards for example.<p/>
+	<p>After some time the MSI method was extended to MSI-X. Now every device can have up to 2048 interrupts. It is also now possible to specify which CPU should process which interrupt. It can be very useful for highload devices, like network cards for example.<p/>
 
-	<p>There is no need in separate BIOS table for MSI support. But the device should indicate about its MSI support through one of the Capabilities in its PCI Config space. Also a device driver should include all necessary support for working with the MSI.<p/>
+	<p>There is no need for a separate BIOS table for MSI support. But the device should indicate its MSI support through one of the Capabilities in its PCI Config space. Also, a device driver should include all necessary support for working with the MSI.<p/>
 
 	<h3>Сonclusion</h3>
-	<p>In this article we have studied information about interrupt controller evolution and have got a common theoretical knowledge about the interrupt delivery from external devices in x86 system.<p/>
+	<p>In this article we have studied information about interrupt controller evolution and have got a common theoretical knowledge about interrupt delivery from external devices in the x86 system.<p/>
 
 	<p>In the next part we will go practice and see how to engage each of forementioned interrupt controllers in Linux.<p/>
 
-	<p>In the third part we will look in a coreboot code and see, what settings are need to be done in chipset for a correct interrupt routing.<p/>
+	<p>In the third part we will look into the coreboot code and see what settings are needed in the chipset for correct interrupt routing.<p/>
 
 	<h4>Links:</h4>
 	<ul>
