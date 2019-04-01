@@ -162,7 +162,7 @@
 
 	<p>In the case of MSI there is no sharing of interrupt lines: every interrupt naturally corresponds to its device.<p/>
 
-	<p>MSI interrupts also solve one more problem. For example, let's imagine a situation where a device makes a memory-write transaction, and wants to signal about its completion through the interrupt. But a write transaction can be delayed on the bus in the process of its transmission (and the device couldn't know about it). In this case the signal about the interrupt will come to the CPU first, so the processor will read invalid data. If MSI is used, information about the MSI is transmitted in the same way as data messages, and so it can't come earlier.<p/>
+	<p>MSI interrupts also solve one more problem. For example, let's imagine a situation where a device makes a memory-write transaction, and wants to signal about its completion through the interrupt. But a write transaction can be delayed on the bus in the process of its transmission (and the device couldn't know about it). In this case the signal about the interrupt will come to the CPU first, so the processor will read not yet valid data. If MSI is used, information about the MSI is transmitted in the same way as data messages, and so it can't come earlier.<p/>
 
 	<p>It is worthwhile to notice that MSI interrupts can't work without LAPIC, but MSI's can replace I/O APIC (one more design simplification).<p/>
 
