@@ -158,6 +158,8 @@
 
 	<p>The last variant of APIC was good, but not without downsides. All of the interrupt lines from devices made the system very complicated and thus increased error probability. The PCI express bus came to replace the PCI bus, which simplified all interrupt systems completely. It doesn't have interrupt lines at all. For backwards compatibility interrupt signals (INTx#) are emulated with a separate kind of messages. With PCI interrupt lines their connection was made with physical wires. With PCI express interrupt lines a connection is logical and is made by PCI express bridges. But this support of legacy INTx interrupts only exists for backwards compatibility with the PCI bus. PCI express introduces a completely new method of interrupt delivery - MSI (Message Signaled Interrupts). In this method a device signals about the interrupt simply by writing to a special place in the MMIO region of the CPUs LAPIC.<p/>
 
+	<img src="https://habrastorage.org/webt/8z/qw/7h/8zqw7him-vupzm_wi5glkqtr1ja.png" />
+
 	<p>Earlier a single PCI device (this means all its functions) could have only 4 interrupts, but now it became possible to address up to 32 interrupts.<p/>
 
 	<p>In the case of MSI there is no sharing of interrupt lines: every interrupt naturally corresponds to its device.<p/>
