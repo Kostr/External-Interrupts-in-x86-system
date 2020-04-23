@@ -1,0 +1,396 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>External Interrupts in the x86 system. Part 3. Interrupt routing setup in a chipset on the example of Coreboot</title>
+</head>
+
+<body>
+	<h1>External Interrupts in the x86 system. Part 3. Interrupt routing setup in a chipset on the example of Coreboot</h1>
+
+	<p>We continue to investigate external device interrupt routing setup in the x86 system.<p/>
+
+	<p>In the Part 1 (<a href="https://habr.com/ru/post/446312/">Interrupt controller evolution</a>) we've looked at the theory behind interrupt controllers and all the necessary terminology, in the Part 2 (<a href="???">Linux kernel boot options</a>) we've looked in practice how OS choses between different interrupt controllers. In this part we will investigate how does the BIOS set IRQ to the interrupt controllers routing in a chipset.<p/>
+
+	<p>None of the modern BIOS developer companies (AwardBIOS/AMIBIOS/Insyde) don't open their source code. But luсkily there is <a href="https://www.coreboot.org/">Coreboot</a> - the project aimed at replacing proprietary BIOS to the free firmware code. In its source code we'll see what is needed to be done to setup the interrupt routing in a chipset.<p/>
+
+	<img src="https://habrastorage.org/webt/mx/vi/wu/mxviwuisp5rglec_kgsk872hmy8.png" />
+
+	<cut />
+	<h2>Theory</h2>
+
+	<p>For start let's review and expand our theoretical knowledge of the subject. In a <a href="https://habr.com/ru/post/446312/">part 1</a> we've highlighted a common path of an interrupt from the external device for the PIC and APIC cases.<p/>
+
+	<b>PIC:</b>
+
+	<img src="https://habrastorage.org/webt/u_/jr/u9/u_jru9pemdeda2xvvbqihvgtp3y.png" />
+
+	<b>APIC:</b>
+
+	<img src="https://habrastorage.org/webt/mc/ra/hj/mcrahjn-owk9qrcmyiixcmhomcq.png" />
+
+	<p>On these pictures the mapping 'PCI device → PIR' is presented fairly abstract, actually it is a little bit more complicated. In a reality every PCI device has 4 interrupt lanes (INTA#, INTB#, INTC#, INTD#). Also every PCI device can have up to 8 so called 'functions' (which actually trigger interrupts) and each of these functions can connect to the one of the INTx# lane. Which INTx# interrupt will trigger each of the functions either is fixed in the hardware, or is defined by the device software configuration.<p/>
+
+	<img src="https://habrastorage.org/webt/dk/ny/gh/dknyghwfo8gktn5l_lmmqb5awz0.png" />
+
+	<p>In a nutshell these functions are like separate logical blocks. For example one PCI device can have in itself 'Smbus controller' function, 'SATA controller' function and 'LPC bridge' function. From the point of OS every function is like a separate device with its own configuration space PCI Config.<p/>
+
+	<p>In a most simple (and a most common) case PCI device has only one function with its interrupt going to a lane INTA#. But in a common case device can have even more that 4 functions (as we've already said up to 8), and in this case it have to connect some of them to the same INTx# lane (PCI interrupts can share an interrupt lane). Also for PCI devices that are a part of a chipset, by writing to its special registers usually it is possible to declare which functions use which INTx# lanes (or don't use them at all).<p/>
+
+	<p>Finalizing all of that, let us write the complete path (routing) for an interrupt form any PCI function through  INTx#→PIRQy→IRQz, where:<p/>
+	<ul>
+		<li>INTx# — INT# lane (INTA#, INTB#, INTC#, INTD#) of the PCI device, which is used by a PCI function</li>
+		<li>PIRQy — PIRQ lane (PIRQA, PIRQB, ...) from the PIR,which is connected with the INTx# lane</li>
+		<li>IRQz — IRQ line (0, 1, 2, ...) from the interrupt controller (APIC/PIC), which is connected with the PIRQy lane</li>
+	</ul>
+
+	<h3>Why we just can't connect INTA#→PIRQA, INTB#→PIRQB, ... everywhere?</h3>
+
+	Why should we waste our time paying attention to the interrupt routing setup? Suppose we've decided do not bother at all and have connected all the interrupt lanes from every PCI device to the PIRQ lanes in a same way. For example:
+
+	<ul>
+		<li>INTA#→PIRQA</li>
+		<li>INTB#→PIRQB</li>
+		<li>INTC#→PIRQC</li>
+		<li>INTD#→PIRQD</li>
+	</ul>
+
+	<p>As we've already said above, the most common case is when a PCI device has only one function, and its interrupt is connected to the INTA# lane (because why whould hardware device developer route it in a different way?). Therefore if we would decide to route all lanes as we've written, almost all of the devices in a system would share interrupt lane PIRQA. Suppose it is connected to the IRQ16. This way, every time a processor has a signal that there is an interrupt on a IRQ16 line, it has to question all of the device drivers of PCI devices connected to that IRQ16 line (PIRQA) if they have an interrupt. If there is many of such devices, it surely wouldn't increase system response to the interrupt. And lanes PIRQB-PIRQD in this case would stand idle wasted most of the time. Here is a picture that illustrates this problem:<p/>
+
+	<img src="https://habrastorage.org/webt/cz/dv/bf/czdvbfsnymw5xyyqujavawdcv_m.png" />
+
+	<p>And that's what it could be like:<p/>
+
+	<img src="https://habrastorage.org/webt/dk/3e/x6/dk3ex67xjmm_9h0q3miq2djqnti.png" />
+
+	<p>The picture is a little bit complicated, but the point is that here we simply connect INTx# lanes with PIRQy lanes in a round-robin way (PIRQA, PIRQB, PIRQC, PIRQD, PIRQA, PIRQB, PIRQC, PIRQD, PIRQA, PIRQB, PIRQC, PIRQD, ...)<p/>
+
+	<p>It is worth to notice that you should take into account not only the fact, that each PIRQ should have fairly the same number of PCI functions connected to it. You should also consider that some functions trigger interrupts very rarely and some almost constantly (e.g. Ethernet controller). In this case even allocation of a separate PIRQ lane for such function may be completely justified.<p/>
+
+	<p>From all of the above BIOS developers besides all of the rest have to balance PIRQ lanes with the interrupt load.<p/>
+
+	<h3>What should BIOS do anyway?</h3>
+
+	<p>Here is a picture that summarizes the answer:<p/>
+
+	<img src="https://habrastorage.org/webt/pm/rq/xg/pmrqxgkdu0nkjz6yb44vdn79a8q.png" />
+
+	<ul>
+		<li><b>1) For every PCI function of every PCI device declare which INTx# the function triggers</b><br/>
+		For the external PCI devices you don't do any of this, but for the functions of PCI devices that are a part of the chipset you probably have to.</li>
+		<li><b>2) For every PCI device set INTx#→PIRQy mapping</b><br/>
+		It is worth to notice that it can be more than standard 4 PIRQy signals (PIRQA, PIRQB, PIRQC, PIRQD). For example there can be 8 of them: PIRQA-PIRQH.</li>
+	</ul>
+	<p>PIRQy signals go to IRQz lanes of the chosen inerrupt controller (APIC/PIC). As we want to support all possible boot modes (take a look into <a href="???">part 2</a> for that) it is neccessary to fill both of these mappings:<p/>
+
+	<ul>
+		<li><b>3a) Fill the mapping PIRQy→IRQz1 for the PIR→I/O APIC connection</b><br/>
+		Usually you don't have to do it, because in a most cases PIRQy lanes are hardwired to a particular APIC lanes. The most common solution is PIRQA→IRQ16, PIRQB→IRQ17, ... It is also the most simple one, because when we connect PIRQy lanes to the interrupt controller lanes ≥16, we don't have to worry about conflicts with non-shareable interrupts from ISA devices.</li>
+		<li><b>3b) Fill the mapping PIRQy→IRQz2 for the PIR→PIC connection</b><br/>
+		This should be done if we want to support a case of a routing through the PIC controller. There is no such obvious solution like in an APIC case, because in with a PIC you should take into account possibility of conflicts with non-shareable interrupts from ISA devices.</li>
+	</ul>
+	<p>The next item that should be done is necessary to help OS to determine the routing mode. Hardware by itself usually doesn't use data from these registers:<p/>
+
+	<ul>
+		<li><b>4) Fill 'Interrupt Line/Interrupt Pin' registers for every PCI function</b>
+	 Actually the 'Interrupt Pin' register is usually filled automatically and in most cases is a 'Read-Only', therefore it is probably only necessary to fill 'Interrupt Line' register only. It should be done for the situation when we chose to use a routing through the PIC controller without giving OS any interrupt routing table (again take a look into <a href="???">part 2</a> for the explanation). If interrupt tables are present and this mapping is the same as the mapping in those tables ($PIR/ACPI), then OS usually keeps it.</li>
+	</ul>
+
+	<p>It is worth to notice that we don't touch the topic of $PIR/MPtable/ACPI tables yet, we only look into how the registers of a chipset that are responsible for the interrupt routing should be configured, before we handle execution to the OS bootloader. The interrupt tables are a subject of a separate article (which will be probably in the future).<p/>
+
+	<p>So, all the theoretical ground is covered, let's go into practice!<p/>
+
+	<h2>Practice</h2>
+
+	<p>As an example board in these articles I use custom motherboard with an Intel Haswell i7 CPU and a chipset LynxPoint-LP. For this board I've ported and flashed Coreboot with a SeaBIOS payload. Coreboot does all the necessary hardware-dependent initialization while its payload (SeaBIOS) provides the BIOS interface for the operating systems. In this article I wouldn't go into coreboot configuration process, I would just try show by example what settings BIOS should do in a chipset for the correct IRQ interrupt routing from the external devices.<p/>
+
+	<p>As coreboot project is actively depeloping, to make this article remain relevant, we will look at the source code for the last fixed version <a href="https://review.coreboot.org/cgit/coreboot.git/tree/?h=4.9">4.9</a> (release 2018-12-20).<p/>
+
+	<p>The motherboard that is the most similar to mine is a 'Google Beltino' with a 'Panther' variation. The main folder in a source code for this motherboard is <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/mainboard/google/beltino?h=4.9">"src\mainboard\google\beltino"</a>. Here are all the configuration settings and all of the specific code for this particular motherboard.<p/>
+
+	<p>Now, let's find out where the configuration of all the things have mentioned above is happening:<p/>
+
+	<h4>1) For every PCI function of every PCI device declare which INTx# the function triggers</h4>
+
+	<p>This information is defined in a file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/mainboard/google/beltino/romstage.c?h=4.9">"src/mainboard/google/beltino/romstage.c"</a> in a structure 'rcba_config' through the 'DxxIP' registers (Device xx Interrupt Pin Register (IP)). This register shows to which of the INTx# (A/B/C/D) pins every PCI function connects its interrupt.<p/>
+
+	<p>Possible choises are (see file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/southbridge/intel/lynxpoint/pch.h?h=4.9">"src/southbridge/intel/lynxpoint/pch.h"</a>):<p/>
+
+<source lang="cpp"><pre>0h = No interrupt
+1h = INTA#
+2h = INTB#
+3h = INTC#
+4h = INTD#</pre></source>
+
+	<p>It is possible that multiple functions would use the same pin.<p/>
+
+	<p>It is allowed for a function to not use any interrupt pin at all ('No interrupt'). Everything is like we saw it on a picture in the beginning of the article.<p/>
+
+	<p>The full code responsible for this paragraph is:<p/>
+
+<source lang="cpp"><pre>/* Device interrupt pin register (board specific) */
+RCBA_SET_REG_32(D31IP, (INTC << D31IP_TTIP) | (NOINT << D31IP_SIP2) |
+		(INTB << D31IP_SMIP) | (INTA << D31IP_SIP)),
+RCBA_SET_REG_32(D29IP, (INTA << D29IP_E1P)),
+RCBA_SET_REG_32(D28IP, (INTA << D28IP_P1IP) | (INTC << D28IP_P3IP) |
+		(INTB << D28IP_P4IP)),
+RCBA_SET_REG_32(D27IP, (INTA << D27IP_ZIP)),
+RCBA_SET_REG_32(D26IP, (INTA << D26IP_E2P)),
+RCBA_SET_REG_32(D22IP, (NOINT << D22IP_MEI1IP)),
+RCBA_SET_REG_32(D20IP, (INTA << D20IP_XHCI)),</pre></source>
+
+	<p>For better understanding let's look at a few examples:<p/>
+
+	<p><b>Example 1:</b><p/>
+
+	<p>In a PCI device 0x1d (29 in decimal) there is one function (EHCI controller).<p/>
+
+	<p>In this case we set its interrupt to INTA#.<p/>
+
+	<p>00:1d.0 - INTA#<p/>
+
+<source lang="cpp"><pre>RCBA_SET_REG_32(D29IP, (INTA << D29IP_E1P)),</pre></source>
+
+	<p><b>Example 2:</b><p/>
+
+	<p>In a PCI device 0x1f (31 in decimal) there are several functions: Thermal Sensor controller (00:1f.6), SATA controller 2 (00:1f.2), SMBus controller (00:1f.3), SATA controller 1 (00:1f.2). We want to use SMBus controller, SATA controller 1 and  Thermal Sensor controller only.<p/>
+
+<pre>
+00:1f.2 - INTA# (SATA controller 1)
+00:1f.3 - INTB# (SMBus controller)
+00:1f.2 - No interrupt (SATA controller 2 is not used)
+00:1f.6 - INTC# (Thermal Sensor controller)
+</pre>
+
+	<p>For this configuration we should write:<p/>
+<source lang="cpp"><pre>RCBA_SET_REG_32(D31IP, (INTC << D31IP_TTIP) | (NOINT << D31IP_SIP2) | (INTB << D31IP_SMIP) | (INTA << D31IP_SIP)),</pre></source>
+
+	<p><b>Example 3:</b><p/>
+
+	<p>One of the PCI devices has more than 4 functions that we need to be enabled. In a device 0x1c (decimal 28) every function is responsible for a particular PCI Express port. To enable ports 0-5 and to make the interrupts from them evenly balanced we can setup it like this:<p/>
+
+<pre>
+00:1c.0 - INTA#	(PCI Express Port 0)
+00.1c.1 - INTB#	(PCI Express Port 1)
+00.1c.2 - INTC#	(PCI Express Port 2)
+00.1c.3 - INTD#	(PCI Express Port 3)
+00.1c.4 - INTA#	(PCI Express Port 4)
+00.1c.5 - INTB#	(PCI Express Port 5)
+00.1c.6 - No interrupt	(port is not used)
+00.1c.7 - No interrupt	(port is not used)
+</pre>
+
+<source lang="cpp"><pre>RCBA_SET_REG_32(D28IP, (INTA << D28IP_P1IP) | (INTB << D28IP_P2IP) | (INTC << D28IP_P3IP) | (INTD << D28IP_P4IP) | (INTA << D28IP_P5IP) | (INTB << D28IP_P6IP) | (NOINT << D28IP_P7IP) | (NOINT << D28IP_P8IP)),</pre></source>
+
+	<h4>2) For every PCI device set INTx#→PIRQy mapping</h4>
+
+	<p>This information is also defined in a file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/mainboard/google/beltino/romstage.c?h=4.9">"src\mainboard\google\beltino\romstage.c"</a> in a 'rcba_config' structure, but in this case it is done through the 'DxxIR' registers (Device xx Interrupt Route Register).<p/>
+
+	<p>Information in this registers shows to which PIRQy lane (A/B/C/D/E/F/G/H) every of the INTx# lanes is connected.<p/>
+
+<source lang="cpp"><pre>/* Device interrupt route registers */
+RCBA_SET_REG_32(D31IR, DIR_ROUTE(PIRQG, PIRQC, PIRQB, PIRQA)),/* LPC */
+RCBA_SET_REG_32(D29IR, DIR_ROUTE(PIRQD, PIRQD, PIRQD, PIRQD)),/* EHCI */
+RCBA_SET_REG_32(D28IR, DIR_ROUTE(PIRQA, PIRQB, PIRQC, PIRQD)),/* PCIE */
+RCBA_SET_REG_32(D27IR, DIR_ROUTE(PIRQG, PIRQG, PIRQG, PIRQG)),/* HDA */
+RCBA_SET_REG_32(D22IR, DIR_ROUTE(PIRQA, PIRQA, PIRQA, PIRQA)),/* ME */
+RCBA_SET_REG_32(D21IR, DIR_ROUTE(PIRQE, PIRQF, PIRQF, PIRQF)),/* SIO */
+RCBA_SET_REG_32(D20IR, DIR_ROUTE(PIRQC, PIRQC, PIRQC, PIRQC)),/* XHCI */
+RCBA_SET_REG_32(D23IR, DIR_ROUTE(PIRQH, PIRQH, PIRQH, PIRQH)),/* SDIO */</pre></source>
+
+	<p><b>Example 1:</b><p/>
+
+	<p>The PCI device 0x1c (28 in decimal) presents PCIe ports as we already know.<p/>
+
+	<p>Let's make a direct connection:<p/>
+
+	<ul>
+		<li>INTA#→PIRQA</li>
+		<li>INTB#→PIRQB</li>
+		<li>INTC#→PIRQC</li>
+		<li>INTD#→PIRQD</li>
+	</ul>
+
+<source lang="cpp"><pre>RCBA_SET_REG_32(D28IR, DIR_ROUTE(PIRQA, PIRQB, PIRQC, PIRQD))</pre></source>
+
+	<p><b>Example 1:</b><p/>
+
+	<p>The PCI device 0x1d (29 in decimal) has one function (EHCI controller) on its INTA# pin, the rest of the lanes are unused.<p/>
+
+	<p>Connect lane INTA# with PIRQD:<p/>
+
+<source lang="cpp"><pre>RCBA_SET_REG_32(D29IR, DIR_ROUTE(PIRQD, PIRQD, PIRQD, PIRQD))</pre></source>
+
+	<p>In this case only the first record PIRQD (for INTA#) makes sense, the rest of them don't do anything useful.<p/>
+
+	<h4>3a) Fill the mapping PIRQy→IRQz1 for the PIR→I/O APIC connection</h4>
+
+	<p>As we've already said, this mapping is usually fixed in a hardware, and this case is not an exception.<p/>
+
+	<ul>
+		<li>PIRQA→IRQ16</li>
+		<li>PIRQB→IRQ17</li>
+		<li>...</li>
+		<li>PIRQH→IRQ23</li>
+	</ul>
+
+	<h4>3b) Fill the mapping PIRQy→IRQz2 for the PIR→PIC connection</h4>
+
+	<p>In the coreboot the content for these registers is defined in a file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/mainboard/google/beltino/devicetree.cb?h=4.9">devicetree.cb</a> in the motherboard folder "src\mainboard\google\beltino\".<p/>
+
+	<p>'devicetree.cb' (the name 'devicetree' comes from the similar concept in a Linux kernel, and a "cb" is an abbreviation from the word "coreboot") is a special file declaring configurations of a particaluar motherboard such as: which processor is used, which chipset is used, which devices are enabled in the chipset and which are not, and so on. Besides that this file could contain some special information about chipset configuration. This is exactly what need in this case:<p/>
+
+<source lang="python"><pre>register "pirqa_routing" = "0x8b"
+register "pirqb_routing" = "0x8a"
+register "pirqc_routing" = "0x8b"
+register "pirqd_routing" = "0x8b"
+register "pirqe_routing" = "0x80"
+register "pirqf_routing" = "0x80"
+register "pirqg_routing" = "0x80"
+register "pirqh_routing" = "0x80"</pre></source>
+
+	<p>These strings define PIRQy→IRQz2 mapping. In the code, after 'devicetree.cb' file parsing they would transform into variables "config->pirqX_routing".<p/>
+
+	<p>The assignment "config->pirqa_routing = 0x8b" will mean that PIRQA is connected to IRQ11 lane (0x0b = 11) of the PIC controller, but the most significant bit (which is 0x80) means that interrupt routing is not active. To be honest for me it seems like a mistake, by default PIC routing should be enabled, operating system can change to I/O APIC use by itself setting this bit to 1 if it is necessary.<p/>
+
+	<p>Therefore in this case it seems more correct to write:<p/>
+
+<source lang="python"><pre>register "pirqa_routing" = "0x0b"
+register "pirqb_routing" = "0x0a"
+register "pirqc_routing" = "0x0b"
+register "pirqd_routing" = "0x0b"
+register "pirqe_routing" = "0x80"	# not used
+register "pirqf_routing" = "0x80"	# not used
+register "pirqg_routing" = "0x80"	# not used
+register "pirqh_routing" = "0x80"	# not used
+</pre></source>
+	<p>We didn't enable the last 4 interrupts, because IRQ0 is always used for the system timer and surely can't be used (see <a href="https://wiki.osdev.org/Interrupts#General_IBM-PC_Compatible_Interrupt_Information">General IBM-PC Compatible Interrupt Information</a>).<p/>
+
+	<p>But if we'll look carefully at a paragraph '2)', we'll see that some PCI devices use PIRQE-PIRQH lanes, therefore keeping them unconnected is a right path to non-working devices.<p/>
+
+	<p>So it is better to write something like this:<p/>
+
+<source lang="python"><pre>register "pirqa_routing" = "0x03"
+register "pirqb_routing" = "0x04"
+register "pirqc_routing" = "0x05"
+register "pirqd_routing" = "0x06"
+register "pirqe_routing" = "0x0a"
+register "pirqf_routing" = "0x0b"
+register "pirqg_routing" = "0x0e"
+register "pirqh_routing" = "0x0f"</pre></source>
+
+	<p>Actual filling of the corresponding device registers is happening in a file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/southbridge/intel/lynxpoint/lpc.c?h=4.9">src\southbridge\intel\lynxpoint\lpc.c</a> in a function 'pch_pirq_init'.<p/>
+
+	<p>The code fragment, that is responsible for the register setting is:<p/>
+<source lang="cpp"><pre>/* Get the chip configuration */
+config_t *config = dev->chip_info;
+pci_write_config8(dev, PIRQA_ROUT, config->pirqa_routing);
+pci_write_config8(dev, PIRQB_ROUT, config->pirqb_routing);
+pci_write_config8(dev, PIRQC_ROUT, config->pirqc_routing);
+pci_write_config8(dev, PIRQD_ROUT, config->pirqd_routing);
+
+pci_write_config8(dev, PIRQE_ROUT, config->pirqe_routing);
+pci_write_config8(dev, PIRQF_ROUT, config->pirqf_routing);
+pci_write_config8(dev, PIRQG_ROUT, config->pirqg_routing);
+pci_write_config8(dev, PIRQH_ROUT, config->pirqh_routing);</pre></source>
+
+	<p>The address constants are defined in the same file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/southbridge/intel/lynxpoint/pch.h?h=4.9">pch.h</a><p/>
+
+<source lang="cpp"><pre>#define PIRQA_ROUT		0x60
+#define PIRQB_ROUT		0x61
+#define PIRQC_ROUT		0x62
+#define PIRQD_ROUT		0x63
+#define PIRQE_ROUT		0x68
+#define PIRQF_ROUT		0x69
+#define PIRQG_ROUT		0x6A
+#define PIRQH_ROUT		0x6B</pre></source>
+
+	<p>PIRQy→IRQz2 mapping for this particular chipset is written in a PCI device LPC (address 00:1f.0) into the registers PIRQy_ROUT. It should be taken into account that usually not all the lanes IRQz2 on the PIC are permitted for use, but only a part of them (e.g. 3,4,5,6,7,9,10,11,12,14,15). In a description for these registers there are should be information about which IRQs are available for the connection of PIRQ lanes to them. So the proposed above mapping is possible only if a connection of PIRQ is possible to the lanes IRQ3, IRQ4, IRQ5, IRQ6, IRQ10, IRQ11, IRQ14, IRQ15. But if we look closely to the comment above the function 'pch_pirq_init', we will see that this is the exact situation:<p/>
+
+<source lang="cpp"><pre>/* PIRQ[n]_ROUT[3:0] - PIRQ Routing Control
+ * 0x00 - 0000 = Reserved
+ * 0x01 - 0001 = Reserved
+ * 0x02 - 0010 = Reserved
+ * 0x03 - 0011 = IRQ3
+ * 0x04 - 0100 = IRQ4
+ * 0x05 - 0101 = IRQ5
+ * 0x06 - 0110 = IRQ6
+ * 0x07 - 0111 = IRQ7
+ * 0x08 - 1000 = Reserved
+ * 0x09 - 1001 = IRQ9
+ * 0x0A - 1010 = IRQ10
+ * 0x0B - 1011 = IRQ11
+ * 0x0C - 1100 = IRQ12
+ * 0x0D - 1101 = Reserved
+ * 0x0E - 1110 = IRQ14
+ * 0x0F - 1111 = IRQ15
+ * PIRQ[n]_ROUT[7] - PIRQ Routing Control
+ * 0x80 - The PIRQ is not routed.
+ */</pre></source>
+ 
+	<h4>4) Fill 'Interrupt Line/Interrupt Pin' registers for every PCI function</h4>
+	<p>There are 2 registers in a PCI config space (which every PCI function has by a PCI standard) that we are intrested in:<p/>
+
+	<ul>
+		<li>3Ch: Interrupt Line - here we should write 'IRQz2' (number from 0 to 15), the number of an interrupt which eventually triggers the PIC controller when it is used</li>
+		<li>3Dh: Interrupt Pin - shows which INTx# lane (A/B/C/D) PCI function uses</li>
+	</ul>
+
+	<p>Let's start from the latter. The 'Interrupt Pin' register would be filled automatically from the settings of a chipset (registers 'DxxIP'), that we've made in a paragraph 1. We can't even explicitly rewrite these PCI registers, they are 'Read-Only' for the code.<p/>
+
+	<p>So the only thing that is left to do for us it to fill the 'Interrupt Line' register with an IRQz2 interrupt for every PCI function.<p/>
+
+	<p>If we know the mapping PIRQy→IRQz2 (paragraph 3b), and a mapping INTx#→PIRQy (paragraph 2) we could easily fill the 'Interrupt Line' register for every PCI function, knowing which interrupt INTx# it actually uses (paragraph 1).<p/>
+
+	<p>In coreboot 'Interrupt Line' registers are filled in the same file <a href="https://review.coreboot.org/cgit/coreboot.git/tree/src/southbridge/intel/lynxpoint/lpc.c?h=4.9">src\southbridge\intel\lynxpoint\lpc.c</a> of the same 'pch_pirq_init' function:<p/>
+
+<source lang="cpp"><pre>/* Eric Biederman once said we should let the OS do this.
+ * I am not so sure anymore he was right.
+ */
+
+for (irq_dev = all_devices; irq_dev; irq_dev = irq_dev->next) {
+	u8 int_pin=0, int_line=0;
+
+	if (!irq_dev->enabled || irq_dev->path.type != DEVICE_PATH_PCI)
+		continue;
+
+	int_pin = pci_read_config8(irq_dev, PCI_INTERRUPT_PIN);
+
+	switch (int_pin) {
+	case 1: /* INTA# */ int_line = config->pirqa_routing; break;
+	case 2: /* INTB# */ int_line = config->pirqb_routing; break;
+	case 3: /* INTC# */ int_line = config->pirqc_routing; break;
+	case 4: /* INTD# */ int_line = config->pirqd_routing; break;
+	}
+
+	if (!int_line)
+		continue;
+
+	pci_write_config8(irq_dev, PCI_INTERRUPT_LINE, int_line);
+}</pre></source>
+
+	<p>This code for some reason imply that the mapping in any case should be INTA#→PIRQA, INTB#→PIRQB, INTC#→PIRQC, INTD#→PIRQD. But as we've seen earlier this easily could be done in a different way (see paragraph 2).<p/>
+
+	<p>So it seems like "Eric Biederman once said" and we've copy-pasted it everywhere:<p/>
+
+<source lang="bash"><pre>$ grep "Eric Biederman once said" -r src/
+src/southbridge/intel/fsp_bd82x6x/lpc.c:        /* Eric Biederman once said we should let the OS do this.
+src/southbridge/intel/i82801gx/lpc.c:   /* Eric Biederman once said we should let the OS do this.
+src/southbridge/intel/i82801ix/lpc.c:   /* Eric Biederman once said we should let the OS do this.
+src/southbridge/intel/lynxpoint/lpc.c:  /* Eric Biederman once said we should let the OS do this.
+src/southbridge/intel/sch/lpc.c:        /* Eric Biederman once said we should let the OS do this.</pre></source>
+
+	<p>In general coreboot doesn't pay much attention to the legacy interrupt modes support. So you shouldn't be very surprised by this situation. It wouldn't prevent modern OS from booting, but if you'll ever decide to boot Linux with options like "acpi=off nolapic", probably it wouldn't be possible.<p/>
+
+	<h2>Conclusion</h2>
+	<p>In a conclusion let's repeat the typical information that is needed to be configured in a chipset to set PCI interrupt routing:<p/>
+
+	<ol>
+		<li>For every PCI function of every PCI device declare which INTx# the function triggers</li>
+		<li>For every PCI device set INTx#→PIRQy mapping</li>
+		<li>Fill the mapping PIRQy→IRQz1 (PIR→APIC) and a mapping PIRQy→IRQz2 (PIR→PIC)</li>
+		<li>Fill 'Interrupt Line/Interrupt Pin' registers for every PCI function.</li>
+	</ol>
+</body>
+</html>
