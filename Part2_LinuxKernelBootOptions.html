@@ -9,9 +9,9 @@
 <body>
 	<h1>External Interrupts in the x86 system. Part 2. Linux kernel boot options</h1>
 
-	<p>In the <a href="https://habr.com/ru/post/446312/">last part</a> we've discussed evolution of the interrupt delivery process from the devices in the x86 system (PIC → APIC → MSI), general theory and all the necessary terminology.<p/>
+	<p>In the <a href="https://habr.com/ru/post/446312/">last part</a> we discussed evolution of the interrupt delivery process from the devices in the x86 system (PIC → APIC → MSI), general theory, and all the necessary terminology.<p/>
 
-	<p>In this practical part we will look at how to roll back to the use of obsolete methods of interrupt delivery in Linux, and particulary we will look at Linux kernel boot options:<p/>
+	<p>In this practical part we will look at how to roll back to the use of obsolete methods of interrupt delivery in Linux, and in particular we will look at Linux kernel boot options:<p/>
 
 	<ul>
 		<li>pci=nomsi</li>
@@ -19,7 +19,7 @@
 		<li>nolapic</li>
 	</ul>
 
-	<p>Also we will look at the order in which OS looks for interrupt routing tables (ACPI/MPtable/$PIR) and what impact is from the following boot options:<p/>
+	<p>Also we will look at the order in which the OS looks for interrupt routing tables (ACPI/MPtable/$PIR) and what the impact is from the following boot options:<p/>
 	
 	<ul>
 		<li>pci=noacpi</li>
@@ -27,16 +27,16 @@
 		<li>acpi=off</li>
 	</ul>
 
-	<p>Probably you've used some combination of these options, when one of devices didn't work correctly in your system because of the interrupt problem. We'll go through these options and find out what they do and how they change kernel '/proc/interrupts' interface output.</p>
+	<p>You've probably used some combination of these options when one of the devices in your system hasn't worked correctly because of an interrupt problem. We'll go through these options and find out what they do and how they change the kernel '/proc/interrupts' interface output.</p>
 	<cut />
 	<h3>Boot without any extra options</h3>
 	<p>In this article for our interrupt investigation we will be using custom board with the Intel Haswell i7 CPU with the LynxPoint-LP chipset which runs <a href="https://www.coreboot.org/">coreboot</a>.<p/>
 
-	<p>Information about interrupts in the Linux system we will be getting through the command:</p>
+	<p>We will be getting information about interrupts in the Linux system through the command:</p>
 
 	<source lang="bash"><pre>cat /proc/interrupts</pre></source>	
 
-	<p>Here is the output of it, when the kernel was booted without any external options:</p>
+	<p>Here is the output when the kernel was booted without any external options:</p>
 
 	<source lang="bash">
 <pre>
@@ -93,7 +93,7 @@ MIS:         0
 </pre>
 	</source>
 
-	<p>File '/proc/interrupts' is the procfs Linux interface to the interrupt subsystem and it presents a table about amount of the interrutps on every CPU core in the system in the following form:</p>
+	<p>File '/proc/interrupts' is the procfs Linux interface to the interrupt subsystem, and it presents a table about the number of interrupts on every CPU core in the system in the following form:</p>
 
 	<ul>
 		<li>First column: interrupt number</li>
@@ -108,15 +108,15 @@ MIS:         0
 		<li>Last column: device (driver) associated with this interrupt</li>
 	</ul>
 
-	<p>So all here is like it is supposed to be in the modern system. For the devices and drivers which support MSI/MSI-X, this is the type of interrupt that they use. The rest of the interrupt routing is happening through the APIC controller<p/>
+	<p>Everything here is like it is supposed to be in the modern system. For the devices and drivers which support MSI/MSI-X, this is the type of interrupt that they use. The rest of the interrupt routing is done through the APIC controller.<p/>
 
-	<p>Simplistically, the interrupt routing schematics can be drawn like this: (red marks active routing paths and black marks unused routing paths)<p/>
+	<p>Simplistically, the interrupt routing schematics can be drawn like this: (red lines are active routing paths and black lines are unused routing paths)<p/>
 
 	<img src="https://habrastorage.org/webt/pb/ej/7c/pbej7cfkiyscux6fzyttfbi99my.png" />
 
-	<p>If a device supports MSI/MSI-X interrupts it should have particular Capability presented in its <a href="https://en.wikipedia.org/wiki/PCI_configuration_space">PCI configuration space</a>.<p/>
+	<p>A device that supports MSI/MSI-X interrupts should have that particular capability listed in its <a href="https://en.wikipedia.org/wiki/PCI_configuration_space">PCI configuration space</a>.<p/>
 
-	<p>In a proof of that let's look at a little fragment of the lspci output for the devices which declare that they use MSI/MSI-X. In our case it is a SATA controller (interrupt 'ahci'), 2 ethernet controllers (interrupts 'eth58*' and 'eth59*'), graphical controller ('i915') and 2 HD Audio controllers ('snd_hda_intel').
+	<p>As an example of that let's look at a little fragment of the lspci output for the devices that declare they use MSI/MSI-X. In our case it is a SATA controller (interrupt 'ahci'), two ethernet controllers (interrupts 'eth58*' and 'eth59*'), graphical controller ('i915'), and two HD Audio controllers ('snd_hda_intel').
 
 	<source lang="bash"><pre>lspci -v</pre></source>
 <source lang="bash"><pre>
@@ -165,16 +165,16 @@ MIS:         0
 
 	<p>As we see, all of these devices either have a string "MSI: Enable+" or "MSI-X: Enable+".<p/>
 
-	<p>Let's downgrade our system! For the start let's boot with the kernel option 'pci=nomsi'.</p>
+	<p>Let's downgrade our system! For a start let's boot with the kernel option 'pci=nomsi'.</p>
 
 	<h3>pci=nomsi</h3>
-	<p>Because of this option MSI interrupts become IO-APIC/XT-PIC depending of the interrupt controller in use.</p>
+	<p>Because of this option MSI interrupts become IO-APIC/XT-PIC depending on the interrupt controller in use.</p>
 
-	<p>In our case our priority choise is still modern APIC controller, so the interrupt picture will be:</p>
+	<p>In this case the priority choice is still modern APIC controller, so the interrupt picture will be:</p>
 
 	<img src="https://habrastorage.org/webt/er/ft/jy/erftjybrd7rm61bmmmhcs3qfzni.png" />
 
-	<p>Output of the /proc/interrupts:<p/>
+	<p>Output of /proc/interrupts:<p/>
 
 <source lang="bash">
 <pre>           CPU0       CPU1       CPU2       CPU3
@@ -205,11 +205,11 @@ ERR:          0
 MIS:          0
 </pre></source>
 
-	<p>As was expected, all MSI/MSI-X inerrupts have dissappeared. Instead of them devices use interrupts of 'IO-APIC-fasteoi' type now.<p/>
+	<p>As expected, all MSI/MSI-X interrupts have disappeared. Instead of them devices now use interrupts of 'IO-APIC-fasteoi' type.<p/>
 
-	<p>Let us draw our attention to the fact that earlier, before enabling this kernel boot option, each of the 'eth58' and 'eth59' had 9 interrupts! But now each of them have only one interrupt. As we remember, without the MSI one function in the PCI device can have only one interrupt!<p/>
+	<p>Let us draw our attention to the fact that earlier, before enabling this kernel boot option, each of the 'eth58' and 'eth59' had nine interrupts! But now each of them has only one interrupt. Recall that without the MSI, one function in the PCI device can have only one interrupt!<p/>
 
-	<p>Here is a little info from the 'dmesg' command about ethernet controllers initialization:</p>
+	<p>Here is a little info from the 'dmesg' command about the ethernet controllers' initialization:</p>
 
 	<p>- boot without the 'pci=nomsi' option:</p>
 	<source lang="bash"><pre>
@@ -283,11 +283,11 @@ igb 0000:05:00.1: eth1: (PCIe:5.0Gb/s:Width x1) 00:15:d5:03:00:2b
 igb 0000:05:00.1: eth1: PBA No: 106300-000
 igb 0000:05:00.1: Using legacy interrupts. 1 rx queue(s), 1 tx queue(s)</pre></source>
 	
-	<p>Becuase of the decreased number of interrupts per device, enabling such option can lead to the significant performance limitation of the device driver (and it is not even counting that according to the Intel research <a href="https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/msg-signaled-interrupts-paper.pdf">'Reducing Interrupt Latency Through the Use of Message Signaled Interrupts'</a> MSI interrupts 3 times faster than the IO-APIC interrupts and 5 times faster than the PIC interrupts.<p/>
+	<p>Because of the decreased number of interrupts per device, enabling this option can lead to a significant performance limitation of the device driver, and that is not even counting that according to the Intel research <a href="https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/msg-signaled-interrupts-paper.pdf">'Reducing Interrupt Latency Through the Use of Message Signaled Interrupts'</a>, MSI interrupts 3 times faster than the IO-APIC interrupts and 5 times faster than the PIC interrupts.<p/>
 
 	<h3>noapic</h3>
 
-	<p>This option disables I/O APIC. MSI interrupts can still find its way to all of the CPUs, but the rest of interrupts from the devices can go only to the CPU0, because PIC is only connected to the CPU0. But LAPIC is working and all other CPUs can still work and handle interrupts.<p/>
+	<p>This option disables I/O APIC. MSI interrupts can still find their way to all of the CPUs, but the rest of interrupts from the devices can go only to CPU0, because PIC is only connected to CPU0. However, LAPIC is working and all other CPUs can still work and handle interrupts.<p/>
 
 	<img src="https://habrastorage.org/webt/uw/tf/rt/uwtfrt5lgbpfenyjwb3u_fc4yvq.png" />
 
@@ -342,15 +342,15 @@ MCP:         2         2         2         2  Machine check polls
 ERR:         0
 MIS:         0</pre></source>
 
-	<p>As we see, all IO-APIC-* interrupts have turned into XT-PIC-XT-PIC, and all of these interrupts have been routed to the CPU0 only. MSI interrupts in the other case have remained unchanged and go to all of the CPU0-3.<p/>
+	<p>As we see, all IO-APIC-* interrupts have turned into XT-PIC-XT-PIC, and all of these interrupts have been routed to CPU0 only. MSI interrupts on the other hand have remained unchanged and go to all of the CPUs.<p/>
 
 	<h3>nolapic</h3>
 
-	<p>This kernel boot option disables LAPIC. MSI interrupts can't work without LAPIC, I/O APIC can't work without LAPIC. Because of that all the interrupts from the devices in the system will go to PIC controller, and it works with CPU0 only. And without LAPIC the rest of the CPUs can't even work in the system.<p/>
+	<p>This kernel boot option disables LAPIC. MSI interrupts can't work without LAPIC, and I/O APIC can't work without LAPIC either. All of the device interrupts can only go to the PIC, and it works with the CPU0 only. And without LAPIC the rest of the CPUs besides CPU0 won't work.
 
 	<img src="https://habrastorage.org/webt/rm/jd/4t/rmjd4tr9wxvkghj5hzb5wu7fswi.png" />
 
-	<p>Output of the /proc/interrupts:<p/>
+	<p>Output of /proc/interrupts:<p/>
 
 	<source lang="bash"><pre>            CPU0
   0:       6416    XT-PIC-XT-PIC    timer
@@ -384,15 +384,15 @@ MIS:          0
 
 	<h3>Combinations of options:</h3>
 
-	<p>Actually there is only one combination for the new variant of routing: "noapic pci=nomsi". It it case all interrupts from the devices could go only to the CPU0 through the PIC controller. But LAPIC system is working, so all the other CPUs can work and handle interrupts.<p/>
+	<p>Actually there is only one combination for the new variant of routing: "noapic pci=nomsi". In this case all interrupts from the devices only go to the CPU0 through the PIC controller. But the LAPIC system is still working, so all the other CPUs can work and handle interrupts.<p/>
 
-	<p>There are no other options because with the "nolapic" option you can't combine anything new, because it makes I/O APIC and MSI unaccessible. Therefore, if you've ever added Linux kernel boot options like "noapic nolapic" (or the most common case "acpi=off noapic nolapic") it seems like you've written some extra letters.<p/>
+	<p>You cannot combine any other options with "nolapic" since it makes I/O APIC and MSI unaccessible. Therefore, if you've ever added Linux kernel boot options like "noapic nolapic" (or the most common case "acpi=off noapic nolapic") it seems like you've written some extra letters.<p/>
 
-	<p>Finally this is the result of the options "noapic pci=nomsi" to our interrupt routing picture:<p/>
+	<p>Finally, here is the result of the options "noapic pci=nomsi" to our interrupt routing picture:<p/>
 
 	<img src="https://habrastorage.org/webt/jx/bu/is/jxbuissu4c453b_5g-4pcs6_d-w.png" />
 
-	<p>And the output of the /proc/interrupts is:<p/>
+	<p>And the output of /proc/interrupts is:<p/>
 
 	<source lang="bash"><pre>          CPU0       CPU1       CPU2       CPU3
   0:        5          0          0          0    XT-PIC-XT-PIC    timer
@@ -423,59 +423,59 @@ MIS:        0</pre></source>
 
 	<h3>Interrupt routing tables and the options "acpi=noirq", "pci=noacpi", "acpi=off"</h3>
 	
-	<p>How does the operating system gets information about the device interrupt routing? BIOS prepares such info for the OS in the form of:</p>
+	<p>How does the operating system get information about the device interrupt routing? The BIOS prepares such info for the OS in the form of:</p>
 	
 	<ul>
 		<li>ACPI tables (_PIC/_PRT functions)</li>
 		<li>_MP_ table (MPtable)</li>
 		<li>$PIR table</li>
-		<li>Registers 0x3C/0x3D of the devices PCI configuration space</li>
+		<li>Registers 0x3C/0x3D of the device's PCI configuration space</li>
 	</ul>
 
-	<p>It is worth to notice that for the MSI interrupts declaration BIOS doesn't need to do anything extra (beside declaring the use of the LAPIC), all the aforementioned routing information is needed only for the APIC/PIC interrupt lines.</p>
+	<p>It is worth to note for the MSI interrupts declaration that the BIOS doesn't need to do anything extra (beside declaring the use of the LAPIC): all the aforementioned routing information is needed only for the APIC/PIC interrupt lines.</p>
 
 	<p>Tables in the list above are presented in the order of priority. Let's examine it in detail.<p/>
 
-	<p>Let's assume the BIOS have presented all this data and we boot our OS without any extra boot options:</p>
+	<p>Let's assume the BIOS has presented all this data and we boot our OS without any extra boot options:</p>
+
+	<ul>
+		<li>OS finds ACPI tables.</li>
+			<li>ОS executes ACPI function "_PIC", passing it the argument stating that the boot should happen in APIC mode. Here there is function code that usually saves the chosen mode in a variable (for example, PICM=1).</li>
+			<li>To access interrupt routing info the OS calls ACPI function "_PRT". This checks the PICM variable and returns routing for the APIC mode case.</li>
+	</ul>
+
+	<p>In the case when we boot with the option <b>noapic</b>:</p>
 
 	<ul>
 		<li>OS finds ACPI tables</li>
-			<li>ОS executes ACPI function "_PIC", passing it the argument stating that the boot should happen in APIC mode. Here is the function code usually saves the chosen mode in a variable (for example, let it be PICM=1)</li>
-			<li>To access interrupt routing info OS calls ACPI function "_PRT". In itself it checks PICM variable and returns routing for the APIC mode case</li>
+			<li>ОS executes ACPI function "_PIC", passing it the argument stating that the boot should happen in PIC mode. Here there is function code that usually saves the chosen mode in a variable (for example, PICM=0)</li>
+			<li>To access interrupt routing info the OS calls ACPI function "_PRT". This checks the PICM variable and returns routing for the PIC mode case.</li>
 	</ul>
 
-	<p>In a case when we boot with the option <b>noapic</b>:</p>
+	<p>If ACPI tables aren't present or interrupt routing with ACPI is disabled through the option <b>acpi=noirq</b> or <b>pci=noacpi</b> (or ACPI subsystem is completely disabled with the <b>acpi=off</b> option), then the OS looks for the MPtable (_MP_) to get all the interrupt routing information:<p/>
 
 	<ul>
-		<li>OS finds ACPI tables</li>
-			<li>ОS executes ACPI function "_PIC", passing it the argument stating that the boot should happen in PIC mode. Here is the function code usually saves the chosen mode in a variable (for example, let it be PICM=0)</li>
-			<li>To access interrupt routing info OS calls ACPI function "_PRT". In itself it checks PICM variable and returns routing for the PIC mode case</li>
-	</ul>
-
-	<p>If ACPI tables aren't present or the functionality of the interrupt routing with the help of ACPI is disabled through the option <b>acpi=noirq</b> or <b>pci=noacpi</b> (or ACPI subsystem is completely disabled with the <b>acpi=off</b> option), then OS looks for the MPtable (_MP_) to get all the interrupt routing information:<p/>
-
-	<ul>
-		<li>OS can't find/don't look at the ACPI tables</li>
+		<li>OS can't find/doesn't look at the ACPI tables</li>
 		<li>OS finds MPtable (_MP_)</li>
 	</ul>
 
-	<p>If ACPI tables aren't present or the functionality of the interrupt routing with the help of ACPI is disabled through the option <b>acpi=noirq</b> or <b>pci=noacpi</b> (or ACPI subsystem is completely disabled with the <b>acpi=off</b> option), and if the MPtable (_MP_) is not present either (or there is a boot option <b>noapic</b> or <b>nolapic</b>):</p>
+	<p>If ACPI tables aren't present or interrupt routing with ACPI is disabled through the option <b>acpi=noirq</b> or <b>pci=noacpi</b> (or ACPI subsystem is completely disabled with the <b>acpi=off</b> option), and if the MPtable (_MP_) is not present either (or there is a boot option <b>noapic</b> or <b>nolapic</b>):</p>
 
 	<ul>
-		<li>OS can't find/don't look at the ACPI tables</li>
-		<li>OS can't find/don't look at the MPtable (_MP_)</li>
+		<li>OS can't find/doesn't look at the ACPI tables</li>
+		<li>OS can't find/doesn't look at the MPtable (_MP_)</li>
 		<li>OS finds $PIR table</li>
 	</ul>
 
-	<p>If there is no $PIR table or it is not full, then the operation system will look at the registers 0x3C/0x3D of the devices PCI configuration space to guess interrupt routing.</p>
+	<p>If there is no $PIR table or it is not full, then the OS will look at the registers 0x3C/0x3D of the device's PCI configuration space to guess interrupt routing.</p>
 
 	<p>Here is a picture summarizing all of this:<p/>
 
 	<img src="https://habrastorage.org/webt/rj/9s/mk/rj9smkhk7c_ou_fzskxasgeriw8.png" />
 
-	<p>One should remember that not every BIOS provides all of these 3 tables (ACPI/MPtable/$PIR), so if you've passed an option to your bootloader (e.g. GRUB) to renounce the use of ACPI or ACPI and MPtable for the interrupt routing, it is not necessarily that your system could boot at all.<p/>
+	<p>One should remember that not every BIOS provides all of these three tables (ACPI/MPtable/$PIR), so if you've passed an option to your bootloader (e.g. GRUB) that disables the use of ACPI or ACPI and MPtable for the interrupt routing, it is possible that your system won't boot.<p/>
 
-	<p><b>Note 1</b>: it a case when we try to boot in APIC mode with the option 'acpi=noirq' and without MPtable present, the picture of interrupts will be like in the case of normal booting with only the 'noapic' option. Operating system will go to PIC mode by itself. In the case if you try to boot without any ACPI tables at all ('acpi=off') and without MPtable present, then the picture will be like this:</p>
+	<p><b>Note 1</b>: In the case when we try to boot in APIC mode with the option 'acpi=noirq' and without MPtable present, the picture of interrupts will be like in the case of normal booting with only the 'noapic' option. The operating system will go to PIC mode by itself. In the case when you try to boot without any ACPI tables at all ('acpi=off') and without MPtable present, then the picture will be like this:</p>
 
 	<source lang="bash"><pre>           CPU0       
   0:          6    XT-PIC-XT-PIC    timer
@@ -514,11 +514,11 @@ ERR:          0
 MIS:          0
 </pre></source>
 
-	<p>This happens because of the fact, that without the ACPI MADT table (<a href="https://wiki.osdev.org/MADT">Multiple APIC Description Table</a>) and the necessary info from the MPtable, operating system doesn't know APIC identifiers (APIC IDs) for the other CPUs and can't work with them. But LAPIC of the main CPU0 works because we haven't disabled it, and MSI interrupts can still go to it. So the interrupt picture would be:<p/>
+	<p>This happens because without the ACPI MADT table (<a href="https://wiki.osdev.org/MADT">Multiple APIC Description Table</a>) and the necessary info from the MPtable, the operating system doesn't know APIC identifiers (APIC IDs) for the other CPUs and can't work with them. But the LAPIC of the main CPU0 works because we haven't disabled it, and MSI interrupts can still go to it. So the interrupt picture would be:<p/>
 
 	<img src="https://habrastorage.org/webt/b-/pz/hx/b-pzhxxyugr5iv203wysxfs7-mo.png" />
 
-	<p><b>Note 2</b>: in general interrupt routing with the use of ACPI in an APIC case should match the interrupt rounting with the MPtable. And the interrupt routing with the use of ACPI in a PIC case should match the interrpt routing with the $PIR table. Therefore the '/proc/interrupts' outputs should not differ. But in my investigation I've noticed one strange fact. For some reason in a case of interrupt routing through the MPtable there is a cascade interrupt "XT-PIC-XT-PIC    cascade" in the output:<p/>
+	<p><b>Note 2</b>: In general, interrupt routing with the use of ACPI in an APIC case should match the interrupt routing with the MPtable. Also, the interrupt routing with the use of ACPI in a PIC case should match the interrupt routing with the $PIR table. Therefore the '/proc/interrupts' output should not differ. But in my investigation I've noticed one strange fact. For some reason in the case of interrupt routing through the MPtable there is a cascade interrupt "XT-PIC-XT-PIC    cascade" in the output:<p/>
 
 	<source lang="bash"><pre>           CPU0       CPU1       CPU2       CPU3       
   0:         15          0          0          0   IO-APIC-edge      timer
@@ -529,17 +529,17 @@ MIS:          0
 ...
 </pre></source>
 
-	<p>It is a little bit strange that it happens like that, but it seems like <a href="https://elixir.bootlin.com/linux/latest/source/Documentation/x86/i386/IO-APIC.txt"> the kernel source documentation</a> says that it is ok<p/>
+	<p>It is a little bit strange that it happens like that, but it seems like <a href="https://elixir.bootlin.com/linux/latest/source/Documentation/x86/i386/IO-APIC.txt"> the kernel source documentation</a> says that it is OK.<p/>
 
 	<h3>Сonclusion</h3>
-	<p>In a conclusion one more time go through the discussed options.<p/>
+	<p>In conclusion we review for one more time the discussed options.<p/>
 
-	<p>Interrupt controller choise options:<p>
+	<p>Interrupt controller choice options:<p>
 	<ul>
-		<li><b>pci=nomsi</b> - MSI interrupts become IO-APIC/XT-PIC depending of the interrupt controller in use</li>
-		<li><b>noapic</b> - Disables I/O APIC. MSI interrupts can still go to all the other CPUs, the rest of the device interrupts can only go to the PIC, and it works with the CPU0 only. But LAPIC works and other CPUs can work and handle interrupts</li>
-		<li><b>noapic pci=nomsi</b> - All of the device interrupts can only go to the PIC, and it works with the CPU0 only. But LAPIC works and other CPUs can work and handle interrupts</li>
-		<li><b>nolapic</b> - Disables LAPIC. MSI interrupts can't work without LAPIC, I/O APIC can't work without LAPIC. All of the device interrupts can only go to the PIC, and it works with the CPU0 only. And without LAPIC the rest of the CPUs besides CPU0 wouldn't work.</li>
+		<li><b>pci=nomsi</b> - MSI interrupts become IO-APIC/XT-PIC depending on the interrupt controller in use.</li>
+		<li><b>noapic</b> - Disables I/O APIC. MSI interrupts can still go to all the other CPUs, the rest of the device interrupts can only go to the PIC, and it works with the CPU0 only. But LAPIC still works and other CPUs can work and handle interrupts.</li>
+		<li><b>noapic pci=nomsi</b> - All of the device interrupts can only go to the PIC, and it works with the CPU0 only. But LAPIC works and other CPUs can work and handle interrupts.</li>
+		<li><b>nolapic</b> - Disables LAPIC. MSI interrupts can't work without LAPIC, and I/O APIC can't work without LAPIC. All of the device interrupts can only go to the PIC, and it works with the CPU0 only. And without LAPIC the rest of the CPUs besides CPU0 won't work.</li>
 	</ul>
 
 	<p>Interrupt tables priority options:<p>
@@ -551,6 +551,6 @@ MIS:          0
 		<li><b>acpi=noirq</b> (<b>pci=noacpi</b>/<b>acpi=off</b>) <b>noapic</b> (<b>nolapic</b>) -  routing through the PIC with the help of $PIR</li>
 	</ul>
 	
-	In the next part we will look at how does the coreboot configures chipset for the interrupt routing.
+	In the next part we will look at how coreboot configures the chipset for the interrupt routing.
 </body>
 </html>
